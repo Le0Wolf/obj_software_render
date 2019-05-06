@@ -17,6 +17,7 @@ namespace SoftwareRenderer
         private Func<Vertex, float> ySelector = vertex => vertex.Y;
         private Func<Extent, float> xSizeSelector = extent => extent.XSize;
         private Func<Extent, float> ySizeSelector = extent => extent.YSize;
+        private float userScaleFactor = 1;
 
         public MainForm()
         {
@@ -85,7 +86,7 @@ namespace SoftwareRenderer
             var height = this.canvas.Height;
 
             // Меньше 1 - сжатие, больше 1 - растяжение
-            var scaleFactor = Math.Min(width / xSizeSelector(file.Size), height / ySizeSelector(file.Size)) / 2;
+            var scaleFactor = Math.Min(width / xSizeSelector(file.Size), height / ySizeSelector(file.Size)) / this.userScaleFactor;
 
             var wCenter = width / 2;
             var hCenter = height / 2;
