@@ -13,6 +13,10 @@ namespace SoftwareRenderer
         private ObjFile obj;
         private Pen pen;
         private bool canPaint = true;
+        private Func<Vertex, float> xSelector = vertex => vertex.X;
+        private Func<Vertex, float> ySelector = vertex => vertex.Y;
+        private Func<Extent, float> xSizeSelector = extent => extent.XSize;
+        private Func<Extent, float> ySizeSelector = extent => extent.YSize;
 
         public MainForm()
         {
@@ -45,7 +49,7 @@ namespace SoftwareRenderer
                 return;
             }
 
-            this.RenderObj(this.obj);
+            this.RenderObj(this.obj, this.xSelector, this.ySelector, this.xSizeSelector, this.ySizeSelector);
         }
 
         private void SaveAsMenuItem_Click(object sender, EventArgs e)
@@ -65,31 +69,26 @@ namespace SoftwareRenderer
                 return;
             }
 
-            this.RenderObj(this.obj);
+            this.RenderObj(this.obj, this.xSelector, this.ySelector, this.xSizeSelector, this.ySizeSelector);
         }
 
-        private void Canvas_Paint(object sender, PaintEventArgs e)
-        {
-            if (true ||this.obj == null || !this.canPaint)
-            {
-                return;
-            }
-
-            this.RenderObj(this.obj);
-        }
-
-        private void RenderObj(ObjFile file)
+        private void RenderObj(
+                ObjFile file,
+                Func<Vertex, float> xSelector,
+                Func<Vertex, float> ySelector,
+                Func<Extent, float> xSizeSelector,
+                Func<Extent, float> ySizeSelector)
         {
             this.canPaint = false;
 
             var width = this.canvas.Width;
             var height = this.canvas.Height;
 
+            // Меньше 1 - сжатие, больше 1 - растяжение
+            var scaleFactor = Math.Min(width / xSizeSelector(file.Size), height / ySizeSelector(file.Size)) / 2;
+
             var wCenter = width / 2;
             var hCenter = height / 2;
-
-            var xOffset = (float) (file.Size.XMin < 0 ? Math.Ceiling(Math.Abs(file.Size.XMin)) : 0);
-            var yOffset = (float) (file.Size.YMin < 0 ? Math.Ceiling(Math.Abs(file.Size.YMin)) : 0);
 
             this.canvas.Image?.Dispose();
             this.canvas.Image = new Bitmap(width, height);
@@ -118,45 +117,19 @@ namespace SoftwareRenderer
                     var v0 = file.VertexList[v0Ind - 1];
                     var v1 = file.VertexList[v1Ind - 1];
 
-                    var x0 = (v0.X + xOffset) * wCenter;
-                    var y0 = (v0.Y + yOffset) * hCenter;
-                    var x1 = (v1.X + xOffset) * wCenter;
-                    var y1 = (v1.Y + yOffset) * hCenter;
+                    var x0 = wCenter + xSelector(v0) * scaleFactor;
+                    var y0 = hCenter + ySelector(v0) * scaleFactor;
+                    var x1 = wCenter + xSelector(v1) * scaleFactor;
+                    var y1 = hCenter + ySelector(v1) * scaleFactor;
 
                     graphic.DrawLine(this.pen, x0, y0, x1, y1);
                 }
-
-                //var dots = this.FaceToPointFArray(face, file.VertexList, width, height);
-                //if (dots != null)
-                //{
-                //    graphic.DrawPolygon(pen, dots);
-                //}
-
             }
 
             graphic.Dispose();
             this.canvas.Image.RotateFlip(RotateFlipType.Rotate180FlipNone);
 
             this.canPaint = true;
-        }
-
-        private PointF[] FaceToPointFArray(Face face, IReadOnlyList<Vertex> vertices, int width, int height)
-        {
-            var result = new PointF[2];
-
-            for (var i = 0; i < 2; i++)
-            {
-                var index = face.VertexIndexList[i];
-                if (vertices.Count <= index)
-                {
-                    return null;
-                }
-
-                var point = vertices[index - 1].ToPointF(width, height);
-                result[i] = point;
-            }
-
-            return result;
         }
     }
 }
