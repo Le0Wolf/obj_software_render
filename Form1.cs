@@ -1,31 +1,70 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.Security;
 using System.Windows.Forms;
-using SoftwareRenderer.ObjReader;
-using SoftwareRenderer.ObjReader.Types;
+using SoftwareRenderer.Settings;
 
 namespace SoftwareRenderer
 {
     public partial class MainForm : Form
     {
-        private ObjFile obj;
-        private Pen pen;
+        private readonly Renderer renderer;
+
+        private PointF moveStart;
+
         private bool canPaint = true;
-        private Func<Vertex, float> xSelector = vertex => vertex.X;
-        private Func<Vertex, float> ySelector = vertex => vertex.Y;
-        private Func<Extent, float> xSizeSelector = extent => extent.XSize;
-        private Func<Extent, float> ySizeSelector = extent => extent.YSize;
-        private float userScaleFactor = 1;
 
         public MainForm()
         {
             this.InitializeComponent();
-            this.pen = new Pen(Color.White);
+            this.MouseWheel += this.OnMouseWheel;
+            this.renderer = new Renderer();
         }
 
-        private void OpenMenuItem_Click(object sender, EventArgs e)
+        private void OnMouseWheel(object sender, MouseEventArgs e)
+        {
+            if (e.Delta == 0)
+            {
+                return;
+            }
+
+            var delta = this.scaleInput.Increment;
+            if (e.Delta < 0)
+            {
+                delta *= -1;
+            }
+
+            var settings = this.renderer.Settings;
+
+            var newScale = settings.Scale + (float) delta;
+            if (newScale > (float) this.scaleInput.Maximum || newScale < (float)this.scaleInput.Minimum)
+            {
+                return;
+            }
+
+            settings.Scale = newScale;
+            this.scaleInput.Value = (decimal)newScale;
+            this.Render();
+        }
+
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+            var settings = Settings.Settings.Load() ?? new Settings.Settings();
+            this.renderer.Settings = settings;
+            this.backgroundColorButton.BackColor = settings.BackgroundColor;
+            this.meshColorButton.BackColor = settings.MeshColor;
+            this.projectionCombo.SelectedIndex = this.projectionCombo.Items.IndexOf(settings.Projection.ToString());
+            this.centerToXButton.Checked = settings.ChangeCenterX;
+            this.centerToYButton.Checked = settings.ChangeCenterY;
+            this.scaleInput.Value = (decimal) settings.Scale;
+        }
+
+        private void MainForm_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            this.renderer.Settings.Save();
+        }
+
+        private void OpenClick(object sender, EventArgs e)
         {
             if (this.openModelDlg.ShowDialog() != DialogResult.OK)
             {
@@ -34,8 +73,7 @@ namespace SoftwareRenderer
 
             try
             {
-                this.obj = new ObjFile();
-                this.obj.Load(this.openModelDlg.FileName);
+                this.renderer.Load(this.openModelDlg.FileName);
             }
             catch (SecurityException ex)
             {
@@ -50,10 +88,10 @@ namespace SoftwareRenderer
                 return;
             }
 
-            this.RenderObj(this.obj, this.xSelector, this.ySelector, this.xSizeSelector, this.ySizeSelector);
+            this.Render();
         }
 
-        private void SaveAsMenuItem_Click(object sender, EventArgs e)
+        private void SaveClick(object sender, EventArgs e)
         {
             if (this.saveBmpDlg.ShowDialog() != DialogResult.OK)
             {
@@ -63,74 +101,118 @@ namespace SoftwareRenderer
             this.canvas.Image.Save(this.saveBmpDlg.FileName);
         }
 
-        private void RefreshMenuItem_Click(object sender, EventArgs e)
+        private void RefreshClick(object sender, EventArgs e)
         {
-            if (this.obj == null || !this.canPaint)
+            if (!this.renderer.Loaded || !this.canPaint)
             {
                 return;
             }
 
-            this.RenderObj(this.obj, this.xSelector, this.ySelector, this.xSizeSelector, this.ySizeSelector);
+            this.Render();
         }
 
-        private void RenderObj(
-                ObjFile file,
-                Func<Vertex, float> xSelector,
-                Func<Vertex, float> ySelector,
-                Func<Extent, float> xSizeSelector,
-                Func<Extent, float> ySizeSelector)
+        private void Render()
         {
-            this.canPaint = false;
-
-            var width = this.canvas.Width;
-            var height = this.canvas.Height;
-
-            // Меньше 1 - сжатие, больше 1 - растяжение
-            var scaleFactor = Math.Min(width / xSizeSelector(file.Size), height / ySizeSelector(file.Size)) / this.userScaleFactor;
-
-            var wCenter = width / 2;
-            var hCenter = height / 2;
-
-            this.canvas.Image?.Dispose();
-            this.canvas.Image = new Bitmap(width, height);
-
-            var graphic = Graphics.FromImage(this.canvas.Image);
-
-            graphic.Clear(Color.Black);
-            foreach (var face in file.FaceList)
+            if (!this.renderer.Loaded)
             {
-                for (var i = 0; i < 3; i++)
-                {
-                    var j = (i + 1) % 3;
-                    if (face.VertexIndexList.Length < i || face.VertexIndexList.Length < j)
-                    {
-                        continue;
-                    }
-
-                    var v0Ind = face.VertexIndexList[i];
-                    var v1Ind = face.VertexIndexList[j];
-
-                    if (file.VertexList.Count <= v0Ind || file.VertexList.Count <= v1Ind)
-                    {
-                        continue;
-                    }
-
-                    var v0 = file.VertexList[v0Ind - 1];
-                    var v1 = file.VertexList[v1Ind - 1];
-
-                    var x0 = wCenter + xSelector(v0) * scaleFactor;
-                    var y0 = hCenter + ySelector(v0) * scaleFactor;
-                    var x1 = wCenter + xSelector(v1) * scaleFactor;
-                    var y1 = hCenter + ySelector(v1) * scaleFactor;
-
-                    graphic.DrawLine(this.pen, x0, y0, x1, y1);
-                }
+                return;
             }
 
-            graphic.Dispose();
+            this.canPaint = false;
+
+            var bmp = this.renderer.Render(this.canvas.Width, this.canvas.Height);
+
+            this.canvas.Image?.Dispose();
+            this.canvas.Image = bmp; 
             this.canvas.Image.RotateFlip(RotateFlipType.Rotate180FlipNone);
 
             this.canPaint = true;
+        }
+
+        private void BackgroundColorClick(object sender, EventArgs e)
+        {
+            if (this.backgroundColorDialog.ShowDialog() != DialogResult.OK)
+            {
+                return;
+            }
+
+            this.renderer.Settings.BackgroundColor = this.backgroundColorDialog.Color;
+            this.backgroundColorButton.BackColor = this.backgroundColorDialog.Color;
+            this.Render();
+        }
+
+        private void MeshColorClick(object sender, EventArgs e)
+        {
+            if (this.meshColorDialog.ShowDialog() != DialogResult.OK)
+            {
+                return;
+            }
+
+            this.renderer.Settings.MeshColor = this.meshColorDialog.Color;
+            this.meshColorButton.BackColor = this.meshColorDialog.Color;
+            this.Render();
+        }
+
+        private void ProjectionCombo_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (Enum.TryParse(this.projectionCombo.SelectedItem as string, out Projection projection))
+            {
+                this.renderer.Settings.Projection = projection;
+                this.Render();
+            }
+        }
+
+        private void CenterToYButton_CheckedChanged(object sender, EventArgs e)
+        {
+            this.renderer.Settings.ChangeCenterY = this.centerToYButton.Checked;
+            this.Render();
+        }
+
+        private void CenterToXButton_CheckedChanged(object sender, EventArgs e)
+        {
+            this.renderer.Settings.ChangeCenterX = this.centerToXButton.Checked;
+            this.Render();
+        }
+
+        private void ScaleInput_ValueChanged(object sender, EventArgs e)
+        {
+            this.renderer.Settings.Scale = (float)this.scaleInput.Value;
+            this.Render();
+        }
+
+        private void RotateButton_Click(object sender, EventArgs e)
+        {
+            this.canvas.Image.RotateFlip(RotateFlipType.Rotate180FlipNone);
+        }
+
+        private void Canvas_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (!this.renderer.Loaded)
+            {
+                return;
+            }
+
+            this.moveStart = new PointF(e.X, e.Y);
+        }
+
+        private void Canvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && !this.moveStart.IsEmpty)
+            {
+                var delta = new PointF(this.moveStart.X - e.X, this.moveStart.Y - e.Y);
+                this.renderer.Settings.Offset = delta;
+                this.Render();
+            }
+            
+        }
+
+        private void Canvas_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                this.renderer.Settings.Offset = PointF.Empty;
+                this.Render();
+            }
         }
     }
 }

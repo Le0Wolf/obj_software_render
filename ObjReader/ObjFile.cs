@@ -8,19 +8,18 @@ namespace SoftwareRenderer.ObjReader
 {
     public class ObjFile : IDisposable
     {
-        private StreamReader stream; 
-        private List<Vertex> vertexList;
-        private List<Face> faceList;
+        private readonly StreamReader stream; 
+        private readonly List<Vertex> vertexList;
+        private readonly List<Face> faceList;
 
         public Extent Size { get; private set; }
 
         public IReadOnlyList<Vertex> VertexList => this.vertexList;
         public IReadOnlyList<Face> FaceList => this.faceList;
 
-        public void Load(string path)
+        public ObjFile(string filePath)
         {
-            this.Dispose();
-            this.stream = new StreamReader(path);
+            this.stream = new StreamReader(filePath);
             this.faceList = new List<Face>();
             this.vertexList = new List<Vertex>();
             this.Size = new Extent();
